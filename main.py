@@ -234,5 +234,5 @@ async def _run_single_agent(job_id: str, provider: dict, request: SearchRequest)
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
