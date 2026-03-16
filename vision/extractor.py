@@ -17,7 +17,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 # Use Groq's vision-capable model
-MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+MODEL = "llama-3.2-90b-vision-preview"
 
 SYSTEM_PROMPT = """You are a specialized pricing extraction AI.
 

@@ -186,7 +186,6 @@ async def _run_search(job_id: str, request: SearchRequest):
             "price": None,
             "screenshot": None,
             "logs": [],
-            "color": p["color"],
         }
 
     jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()

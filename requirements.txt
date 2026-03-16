@@ -4,3 +4,6 @@ playwright
 aiohttp
 openai
 python-dotenv
+httpx
+redis
+groq
