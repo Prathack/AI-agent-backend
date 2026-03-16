@@ -142,10 +142,40 @@ async def _run_search(job_id: str, request: SearchRequest):
     jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()
 
     providers = [
-        {"name": "U-Haul", "url": "https://www.uhaul.com", "color": "#FF6B35"},
-        {"name": "Budget Truck", "url": "https://www.budgettruck.com", "color": "#0066CC"},
-        {"name": "Penske", "url": "https://www.pensketruckrental.com", "color": "#FFD700"},
-        {"name": "Ryder", "url": "https://ryder.com/truck-rental", "color": "#CC0000"},
+        # Major National Rental Companies
+        {"name": "U-Haul", "url": "https://www.uhaul.com", "type": "major"},
+        {"name": "Budget Truck Rental", "url": "https://www.budgettruck.com", "type": "major"},
+        {"name": "Penske Truck Rental", "url": "https://www.pensketruckrental.com", "type": "major"},
+        {"name": "Enterprise Truck Rental", "url": "https://www.enterprisetrucks.com", "type": "major"},
+        {"name": "Ryder System", "url": "https://www.ryder.com/truck-rental", "type": "major"},
+        
+        # Moving & Truck Booking Platforms
+        {"name": "U-Pack", "url": "https://www.upack.com", "type": "platform"},
+        {"name": "PODS", "url": "https://www.pods.com", "type": "platform"},
+        {"name": "Zippy Shell", "url": "https://www.zippyshell.com", "type": "platform"},
+        {"name": "Bellhop", "url": "https://www.bellhopmoving.com", "type": "platform"},
+        {"name": "Unpakt", "url": "https://www.unpakt.com", "type": "platform"},
+        
+        # Truck / Van Rental Marketplaces
+        {"name": "Fluid Truck", "url": "https://www.fluidtruck.com", "type": "marketplace"},
+        {"name": "Fetch Truck Rental", "url": "https://www.fetchtruck.com", "type": "marketplace"},
+        {"name": "GoShare", "url": "https://www.goshare.co", "type": "marketplace"},
+        {"name": "LoadUp", "url": "https://www.loadup.com", "type": "marketplace"},
+        {"name": "COOP by Ryder", "url": "https://www.coopbyryder.com", "type": "marketplace"},
+        
+        # Vehicle Rental Platforms (Cargo Vans/Trucks)
+        {"name": "Hertz", "url": "https://www.hertz.com", "type": "general"},
+        {"name": "Avis", "url": "https://www.avis.com", "type": "general"},
+        {"name": "Dollar Rent A Car", "url": "https://www.dollar.com", "type": "general"},
+        {"name": "Thrifty Car Rental", "url": "https://www.thrifty.com", "type": "general"},
+        {"name": "Sixt", "url": "https://www.sixt.com", "type": "general"},
+        
+        # Truck / Logistics Platforms With Online Quotes  
+        {"name": "TruckGuru", "url": "https://www.truckguru.com", "type": "logistics"},
+        {"name": "BlackBuck", "url": "https://www.blackbuck.co", "type": "logistics"},
+        {"name": "Porter", "url": "https://porter.com", "type": "logistics"},
+        {"name": "Trux", "url": "https://www.trux.com", "type": "logistics"},
+        {"name": "Convoy", "url": "https://convoy.com", "type": "logistics"},
     ]
 
     # Initialize agent statuses
@@ -186,13 +216,14 @@ async def _run_single_agent(job_id: str, provider: dict, request: SearchRequest)
                 "time": datetime.utcnow().isoformat(),
                 "message": log,
             })
+            logger.info(f"[{name}] {log}")  # Also log to console for visibility
         if price is not None:
             jobs[job_id]["agents"][name]["price"] = price
         if screenshot:
             jobs[job_id]["agents"][name]["screenshot"] = screenshot
 
     try:
-        update("running", f"Starting agent for {name}")
+        update("running", f"🚀 Starting agent for {name}")
 
         # Check cache
         cache_key = cache.build_key(
@@ -203,16 +234,11 @@ async def _run_single_agent(job_id: str, provider: dict, request: SearchRequest)
         )
         cached = await cache.get(cache_key)
         if cached:
-            update("completed", f"Cache hit — returning stored data", price=cached.get("total_price"))
+            update("completed", f"✅ Cache hit — returning stored data (Price: ${cached.get('total_price')})", price=cached.get("total_price"))
             return cached
 
-        update("navigating", f"Opening browser for {provider['url']}")
-        await asyncio.sleep(1.5)  # Simulated delay
-
-        update("screenshot", "Capturing page screenshot")
-        await asyncio.sleep(1)
-
-        update("extracting", "Sending screenshot to Groq Vision")
+        update("navigating", f"🌐 Opening browser for {provider['url']}")
+        
         result = await orchestrator.run_agent(
             provider=provider,
             request=request,
@@ -221,15 +247,19 @@ async def _run_single_agent(job_id: str, provider: dict, request: SearchRequest)
 
         if result:
             await cache.set(cache_key, result, ttl=3600)
-            update("completed", f"Extracted price: {result.get('currency','$')}{result.get('total_price','N/A')}", price=result.get("total_price"))
+            price = result.get('total_price', 'N/A')
+            confidence = result.get('confidence_score', 0)
+            update("completed", f"✅ Extraction complete - Price: ${price} (Confidence: {confidence*100:.0f}%)", price=price)
+            logger.info(f"[{name}] Successfully extracted: ${price}")
             return result
         else:
-            update("failed", "Could not extract pricing data")
+            update("failed", "❌ Could not extract pricing data - using fallback")
+            logger.warning(f"[{name}] Failed to extract real data, fallback was used")
             return None
 
     except Exception as e:
-        update("failed", f"Agent error: {str(e)}")
-        logger.error(f"Agent {name} failed: {e}")
+        update("failed", f"❌ Agent error: {str(e)}")
+        logger.error(f"[{name}] Exception: {e}", exc_info=True)
         return None
 
 

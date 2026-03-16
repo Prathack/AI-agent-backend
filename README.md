@@ -1,53 +1,72 @@
 # FleetSight — AI Rental Vehicle Price Intelligence
 
-> Vision-Language-Model powered web agent that extracts rental truck pricing from multiple providers simultaneously — no brittle CSS selectors, just AI eyes.
+> Vision-Language-Model powered web agent that **ACTUALLY VISITS rental websites**, fills in search forms, captures screenshots, and uses Groq Vision API to extract REAL prices — not simulated data.
+
+---
+
+## How It Works (REAL DATA EXTRACTION)
+
+1. **User searches** for rental truck prices (pickup location, drop-off, dates)
+2. **Backend launches** Playwright browser for each rental provider in parallel
+3. **Browser navigates** to rental company website (U-Haul, Penske, Budget, Ryder, Enterprise)
+4. **Form filling** - enters pickup location, drop-off location, dates
+5. **Screenshot capture** - takes full-page screenshot after search results load
+6. **Groq Vision Analysis** - sends real screenshot to Groq's vision model (`llama-3.2-90b-vision-preview`)
+7. **Price extraction** - AI extracts actual prices from the screenshot (NOT simulated)
+8. **Results displayed** - real prices shown in dashboard with confidence scores
 
 ---
 
 ## Architecture
 
 ```
-USER REQUEST
+USER REQUEST (Location, Dates)
      │
      ▼
-FastAPI Backend  ──►  Job Queue (in-memory / Redis)
+FastAPI Backend  ──►  Job Queue (in-memory)
      │
-     ├──────────────────────────────────┐
-     ▼                                  ▼
-AgentOrchestrator              CacheManager (Redis)
-     │                                  │
-     ├── U-Haul Agent                   │
-     ├── Budget Truck Agent     cache hit? ──► return stored result
-     ├── Penske Agent
+     ├───────────────────────────────────────┐
+     ▼                                       ▼
+AgentOrchestrator                   CacheManager (Redis)
+     │                                       │
+     ├── U-Haul Agent (browser)       cache hit? ──► return
+     ├── Budget Truck Agent                  │
+     ├── Penske Agent            
      └── Ryder Agent
            │
            ▼
-    StealthBrowser (Playwright)
+    StealthBrowser (Playwright) ──► Website Navigation ──► Form Fill ──► Screenshot
            │
            ▼
-    Screenshot + DOM
+    Groq Vision API (llama-3.2-90b-vision-preview) ──► REAL PRICE EXTRACTION
            │
            ▼
-    Groq Vision API (llama-4-scout-17b)
+    JSON with actual prices + confidence
            │
            ▼
-    Pydantic Validated JSON
-           │
-           ▼
-    Dashboard (HTML/CSS/JS)
+    Dashboard displays REAL DATA
 ```
 
 ---
 
-## Project Structure
+## Setup Requirements
 
+### 1. Environment Variables (.env)
+```bash
+GROQ_API_KEY=<your-groq-api-key>
 ```
-rental-agent/
-├── backend/
-│   ├── main.py                  FastAPI application + job management
-│   ├── requirements.txt
-│   ├── agents/
-│   │   └── orchestrator.py      Agent loop: observe → think → act
+Get your key at: https://console.groq.com
+
+### 2. Install dependencies
+```bash
+pip install -r requirements.txt
+
+# Install Playwright browsers (REQUIRED for website automation)
+playwright install chromium
+```
+
+### 3. Critical Dependencies
+- **playwright** — actual browser automation (visits real websites)
 │   ├── browser/
 │   │   └── stealth_browser.py   Playwright with anti-detection
 │   ├── vision/
@@ -228,3 +247,123 @@ The agent loop handles it automatically — no selector writing needed.
 | **Validation** | Pydantic v2 |
 | **Cache** | Redis (memory fallback) |
 | **Logging** | Python structured logging |
+
+---
+
+## Troubleshooting
+
+### 1. Console Shows "FALLBACK DATA" Warning
+
+**Problem**: You see `⚠️ Using FALLBACK data for [Provider Name]` in the console
+
+**Causes**:
+- Playwright browser failed to launch
+- Website navigation timed out
+- Form filling couldn't locate input fields
+- Groq API returned an error
+- No prices found in the screenshot
+
+**Solutions**:
+- Ensure `playwright install chromium` was run
+- Check internet connection
+- Verify `GROQ_API_KEY` is set in `.env`
+- Try a different pickup/dropoff location
+- Check browser console for form selector errors
+
+### 2. Low Confidence Scores
+
+**Problem**: Prices are extracted but confidence is < 0.7
+
+**Causes**:
+- Prices were partially visible or unclear in screenshot
+- Website layout is complex or has overlays
+- AI model struggled to parse the pricing structure
+
+**Solutions**:
+- This is expected behavior - low confidence indicates uncertain extraction
+- Check the `raw_text` field to see what was actually found
+- These results should be treated as approximate
+
+### 3. Playwright Installation Issues
+
+**Problem**: `ModuleNotFoundError: No module named 'playwright'`
+
+**Solution**:
+```bash
+pip install -r requirements.txt
+playwright install chromium
+```
+
+### 4. Groq API Errors  
+
+**Problem**: Console shows `Groq API error 401` or `403`
+
+**Solutions**:
+- Verify API key is correct: `echo $GROQ_API_KEY`
+- Get key from https://console.groq.com
+- Check API key permissions
+- Ensure `.env` file is in backend directory
+
+### 5. Website Navigation Timeouts
+
+**Problem**: "Failed to navigate to [URL]" or takes very long
+
+**Causes**:
+- Website is blocking automated access
+- Network connectivity issues
+- Website requires JavaScript rendering
+
+**Note**: Some websites have anti-bot protection that may prevent scraping
+
+---
+
+## Understanding the Data Flow
+
+### When you search for a rental price:
+
+```
+Frontend ──► Backend /api/search
+                │
+        Job ID returned
+                │
+Frontend polls ◄─── Backend /api/jobs/{id}
+                │
+        [U-Haul Agent] Browser Launches → Navigate → Screenshot → Groq Vision → Extract Price
+        [Budget Agent] Browser Launches → Navigate → Screenshot → Groq Vision → Extract Price
+        [Penske Agent] Browser Launches → Navigate → Screenshot → Groq Vision → Extract Price
+        [Ryder Agent]  Browser Launches → Navigate → Screenshot → Groq Vision → Extract Price
+                │
+        Results aggregated
+                │
+Frontend displays ◄─── All prices (real or fallback)
+```
+
+### Real vs Fallback Data:
+
+**REAL DATA**:
+- ✅ Extracted from actual website screenshot
+- ✅ Confidence score 0.7-1.0
+- ✅ raw_text field contains source quote
+
+**FALLBACK DATA**:  
+- ⚠️ Generated when website scraping fails
+- ⚠️ Confidence score 0.4-0.55
+- ⚠️ **Not actual website prices**
+- ⚠️ WARNING logged to console
+
+Always check confidence scores to understand data reliability.
+
+---
+
+## Performance Notes
+
+- Parallel agent execution: ~8-15 seconds for 4 providers
+- Caching: Identical searches return results instantly (1 hour TTL)
+- Browser overhead: ~2-3 seconds per agent for startup
+- Screenshot analysis: ~1-2 seconds per image via Groq API
+
+---
+
+## License
+
+MIT
